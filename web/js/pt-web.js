@@ -4,9 +4,10 @@
   'use strict';
   var CFG = window.PT_CONFIG || {};
   var L = window.PTLogic;
-  var VERSION = '2.0.0';
+  var VERSION = '2.1.0';
   var POLL_MS = 5 * 60 * 1000;
   var TICK_MS = 30 * 1000;
+  var AILA_URL = 'http://127.0.0.1:8765';
 
   // ---------- penyimpanan lokal (aman bila diblokir) ----------
   var mem = {};
@@ -90,11 +91,35 @@
       if (notified[n.key]) return;
       notified[n.key] = Date.now(); changed = true;
       showNotification(n.title, n.body, n.task.id, n.key);
+      kirimKeAila(n);
     });
     var cutoff = Date.now() - 14 * 864e5;
     Object.keys(notified).forEach(function (k) { if (notified[k] < cutoff) { delete notified[k]; changed = true; } });
     if (changed) set('notified', notified);
     updateBadge();
+  }
+
+  // ---------- AILA (asisten di Mac) ----------
+  // Hanya aktif di perangkat yang token AILA-nya sudah disimpan, jadi anggota tim lain tidak terpengaruh.
+  function ailaCfg() { return get('aila', { token: '', aktif: false }); }
+  async function ailaKirim(isi) {
+    var c = ailaCfg();
+    if (!c.aktif || !c.token) return { ok: false, galat: 'AILA belum disambungkan' };
+    try {
+      var r = await fetch(AILA_URL + '/notifikasi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-AILA-Token': c.token },
+        body: JSON.stringify(Object.assign({ judul: 'Project Tracker' }, isi))
+      });
+      var j = await r.json().catch(function () { return {}; });
+      if (r.status === 401) return { ok: false, galat: 'Token AILA salah' };
+      return j.ok ? { ok: true } : { ok: false, galat: j.galat || ('HTTP ' + r.status) };
+    } catch (e) { return { ok: false, galat: 'AILA tidak bisa dihubungi (AILA mati atau tidak berjalan di perangkat ini)' }; }
+  }
+  function kirimKeAila(n) {
+    // mulai, deadline <= 1 jam, dan lewat deadline -> kapsul pengingat AILA; deadline lebih jauh -> info
+    var penting = n.type === 'start' || n.type === 'overdue' || (n.type === 'due' && n.minutes <= 60);
+    ailaKirim({ jenis: penting ? 'pengingat' : 'info', pesan: n.title + ': ' + n.body });
   }
 
   function updateBadge() {
@@ -208,6 +233,17 @@
       var c = await installPrompt.userChoice;
       installPrompt = null;
       return c.outcome === 'accepted';
+    },
+    aila: {
+      config: function () { var c = ailaCfg(); return { aktif: !!c.aktif, adaToken: !!c.token, alamat: AILA_URL }; },
+      simpan: function (patch) {
+        var c = ailaCfg();
+        if (patch.token !== undefined) c.token = String(patch.token).trim();
+        if (patch.aktif !== undefined) c.aktif = !!patch.aktif;
+        set('aila', c); return true;
+      },
+      status: async function () { try { var r = await fetch(AILA_URL + '/status'); return r.ok; } catch (e) { return false; } },
+      uji: function () { return ailaKirim({ jenis: 'info', pesan: 'Project Tracker sudah tersambung ke AILA.' }); }
     },
     openExternal: async function (url) { if (/^https?:\/\//.test(url)) window.open(url, '_blank', 'noopener'); },
     on: function (ch, fn) { (listeners[ch] = listeners[ch] || []).push(fn); }

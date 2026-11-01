@@ -767,6 +767,15 @@ function viewSettings() {
         <button class="btn" id="tn" ${c.notifPermission === 'unsupported' || c.notifPermission === 'denied' ? 'disabled' : ''}>Kirim notifikasi uji</button>
       </div>
     </div></div>
+    <div class="card settings-sect"><div class="card-h"><h2>AILA (asisten di Mac)</h2><span class="chip" id="aila-chip">Memeriksa…</span></div><div class="card-b">
+      <p>Teruskan pengingat task ke AILA di Mac ini: jam mulai, deadline 1 jam lagi, dan lewat deadline muncul sebagai kapsul AILA yang berbunyi; pengingat yang lebih jauh dibacakan sekali. Hanya berlaku di perangkat ini.</p>
+      <form id="aila-f" class="row" style="flex-wrap:wrap">
+        <input type="password" name="token" autocomplete="off" placeholder="${api.aila.config().adaToken ? 'Token tersimpan · tempel lagi untuk mengganti' : 'Tempel token dari AILA → Pengaturan → Aplikasi lain'}" style="flex:1;min-width:220px">
+        <button class="btn primary">Simpan token</button>
+      </form>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="aila-on" ${api.aila.config().aktif ? 'checked' : ''}> Teruskan pengingat ke AILA</label>
+      <div class="row" style="margin-top:12px"><button class="btn" id="aila-uji">Kirim notifikasi uji ke AILA</button></div>
+    </div></div>
     <div class="card settings-sect"><div class="card-h"><h2>Pasang di perangkat</h2></div><div class="card-b">${install}</div></div>
     <div class="card settings-sect"><div class="card-h"><h2>Akun</h2></div><div class="card-b">
       <p>Masuk sebagai <b>${esc(S.user.name)}</b> (${esc(S.user.username)}).</p>
@@ -791,6 +800,19 @@ function viewSettings() {
   });
   if ($('#perm')) $('#perm').onclick = async () => { await api.requestNotifications(); S.cfg = await api.config(); viewSettings(); };
   $('#tn').onclick = async () => { const ok = await api.testNotification(); S.cfg = await api.config(); if (!ok) toast('Notifikasi tidak diizinkan atau tidak didukung browser ini', true); };
+  const ailaChip = async () => {
+    const on = await api.aila.status(), cfg = api.aila.config(), el = $('#aila-chip'); if (!el) return;
+    el.className = 'chip ' + (on && cfg.aktif && cfg.adaToken ? 'good' : on ? 'warn' : '');
+    el.textContent = !on ? 'AILA tidak terdeteksi' : !cfg.adaToken ? 'Token belum diisi' : cfg.aktif ? 'Tersambung' : 'Dimatikan';
+  };
+  ailaChip();
+  $('#aila-f').onsubmit = async (e) => {
+    e.preventDefault(); const t = e.target.token.value.trim(); if (!t) return;
+    api.aila.simpan({ token: t, aktif: true }); e.target.token.value = ''; $('#aila-on').checked = true;
+    const r = await api.aila.uji(); toast(r.ok ? 'Tersambung ke AILA' : r.galat, !r.ok); ailaChip();
+  };
+  $('#aila-on').onchange = (e) => { api.aila.simpan({ aktif: e.target.checked }); toast(e.target.checked ? 'Pengingat diteruskan ke AILA' : 'Tidak diteruskan ke AILA'); ailaChip(); };
+  $('#aila-uji').onclick = async () => { const r = await api.aila.uji(); toast(r.ok ? 'Notifikasi uji terkirim ke AILA' : r.galat, !r.ok); ailaChip(); };
   if ($('#inst')) $('#inst').onclick = async () => { await api.install(); S.cfg = await api.config(); viewSettings(); };
   $('#lo').onclick = async () => { await api.logout(); S.user = null; S.cfg = await api.config(); showLogin(); };
   if ($('#srv')) $('#srv').onclick = async () => {
